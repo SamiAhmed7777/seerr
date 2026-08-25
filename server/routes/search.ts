@@ -1,5 +1,8 @@
 import TheMovieDb from '@server/api/themoviedb';
-import type { TmdbSearchMultiResponse } from '@server/api/themoviedb/interfaces';
+import type {
+  TmdbCollectionResult,
+  TmdbSearchMultiResponse,
+} from '@server/api/themoviedb/interfaces';
 import Media from '@server/entity/Media';
 import { findSearchProvider } from '@server/lib/search';
 import logger from '@server/logger';
@@ -25,12 +28,46 @@ searchRoutes.get('/', async (req, res, next) => {
       });
     } else {
       const tmdb = new TheMovieDb();
+      const page = Number(req.query.page) || 1;
+      const language = (req.query.language as string) ?? req.locale;
 
-      results = await tmdb.searchMulti({
-        query: queryString,
-        page: Number(req.query.page),
-        language: (req.query.language as string) ?? req.locale,
-      });
+      const [multi, collections] = await Promise.all([
+        tmdb.searchMulti({
+          query: queryString,
+          page,
+          language,
+        }),
+        tmdb.searchCollections({
+          query: queryString,
+          page,
+          language,
+        }),
+      ]);
+
+      const collectionResults: TmdbCollectionResult[] = collections.results.map(
+        (collection) => ({
+          id: collection.id,
+          media_type: 'collection',
+          adult: collection.adult,
+          title: collection.name,
+          original_title: collection.original_name,
+          overview: collection.overview,
+          original_language: collection.original_language,
+          poster_path: collection.poster_path,
+          backdrop_path: collection.backdrop_path,
+        })
+      );
+
+      const multiWithoutCollections = multi.results.filter(
+        (result) => result.media_type !== 'collection'
+      );
+
+      results = {
+        page,
+        total_pages: Math.max(multi.total_pages, collections.total_pages),
+        total_results: multi.total_results + collections.total_results,
+        results: [...collectionResults, ...multiWithoutCollections],
+      };
     }
 
     const media = await Media.getRelatedMedia(
