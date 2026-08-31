@@ -4192,6 +4192,79 @@ paths:
               required:
                 - email
                 - password
+  /auth/register:
+    post:
+      summary: Create an email-free account
+      description: >-
+        Takes a `username` and a `password` only. Creates a LOCAL account
+        whose identity is the username (no email address is collected or
+        stored). Generates a session cookie on success.
+      security: []
+      tags:
+        - auth
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid username or password
+        '403':
+          description: Account creation is disabled
+        '409':
+          description: Username already taken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
+  /auth/username-login:
+    post:
+      summary: Sign in with a username (or legacy email) and password
+      description: >-
+        Takes an identifier and a password to log the user in. The
+        identifier may be an email-free account's username or a legacy
+        local account's email address. Generates a session cookie for use
+        in further requests.
+      security: []
+      tags:
+        - auth
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '403':
+          description: Access denied
+        '500':
+          description: Password sign-in is disabled or inputs missing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
   /auth/logout:
     post:
       summary: Sign out and clear session cookie
