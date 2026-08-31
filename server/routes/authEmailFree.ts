@@ -78,7 +78,10 @@ export const authRateLimiter = rateLimit({
         parts[3] = '0';
         parts[4] = '0';
         parts[5] = '0';
-        return parts.join(':');
+        // Dash-joined so the key no longer looks like a raw IPv6 address
+        // (express-rate-limit's ERR_ERL_KEY_GEN_IPV6 validator fires on
+        // colon-containing keys from custom keyGenerators).
+        return parts.join('-');
       }
     }
     return addr;
