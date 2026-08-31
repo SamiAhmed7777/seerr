@@ -7,6 +7,7 @@ import bcrypt from 'bcrypt';
 import type { Request } from 'express';
 import rateLimit from 'express-rate-limit';
 import { Router } from 'express';
+import net from 'net';
 
 /**
  * Email-free local accounts (sami-flix fork).
@@ -32,18 +33,56 @@ export function isValidUsername(raw: string): boolean {
 }
 
 /**
- * Rate limit for the public auth endpoints: 10 attempts per IP per 15
- * minutes. The key is the raw socket address, deliberately NOT req.ip:
- * forwarded headers can never influence the bucket, regardless of the
- * app's trust proxy setting.
+ * Expand an IPv6 address into its 8 hex groups, or null if it is an
+ * IPv4-mapped address (::ffff:x.x.x.x), which is used as-is.
  */
+function expandIpv6(addr: string): string[] | null {
+  if (addr.toLowerCase().startsWith('::ffff:')) {
+    return null;
+  }
+  const [head, tail] = addr.split('::');
+  const headParts = head ? head.split(':') : [];
+  const tailParts = tail ? tail.split(':') : [];
+  const missing = 8 - headParts.length - tailParts.length;
+  const groups =
+    missing > 0
+      ? [...headParts, ...Array<string>(missing).fill('0'), ...tailParts]
+      : [...headParts, ...tailParts];
+  if (groups.length !== 8 || groups.some((g) => !/^[0-9a-fA-F]{1,4}$/.test(g))) {
+    return null;
+  }
+  return groups.map((g) => g.toLowerCase());
+}
+
+// Keyed on the raw socket address, deliberately NOT req.ip: forwarded
+// headers can never influence the bucket, regardless of the app's trust
+// proxy setting. IPv6 addresses are grouped to the /64 (express-rate-limit
+// validation ERR_ERL_KEY_GEN_IPV6 otherwise fails startup) so a /64 is
+// one bucket - the same granularity a non-proxied deployment gets.
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many attempts. Try again later.' },
-  keyGenerator: (req) => req.socket.remoteAddress ?? req.ip ?? 'unknown',
+  keyGenerator: (req) => {
+    const addr = req.socket.remoteAddress ?? req.ip ?? 'unknown';
+    // Group IPv6 to the /64 so a whole ISP/customer prefix is one bucket
+    // (a non-proxied deployment already effectively has this property,
+    // and per-address keys with rotating low bits would defeat the limit).
+    // IPv4 and IPv4-mapped/loopback addresses are used as-is.
+    if (addr.includes(':') && net.isIPv6(addr)) {
+      const parts = expandIpv6(addr);
+      if (parts) {
+        parts[2] = '0';
+        parts[3] = '0';
+        parts[4] = '0';
+        parts[5] = '0';
+        return parts.join(':');
+      }
+    }
+    return addr;
+  },
   // The node:test suite exercises these endpoints heavily from one IP;
   // the test runner sets NODE_ENV=test.
   skip: () => process.env.NODE_ENV === 'test',
