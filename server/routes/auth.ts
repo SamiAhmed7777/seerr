@@ -11,6 +11,7 @@ import { getSettings } from '@server/lib/settings';
 import logger from '@server/logger';
 import { isAuthenticated } from '@server/middleware/auth';
 import { checkAvatarChanged } from '@server/routes/avatarproxy';
+import { registerEmailFreeRoutes } from '@server/routes/authEmailFree';
 import { ApiError } from '@server/types/error';
 import { getAppVersion } from '@server/utils/appVersion';
 import { getHostname } from '@server/utils/getHostname';
@@ -43,9 +44,14 @@ authRoutes.get('/me', isAuthenticated(), async (req, res) => {
   });
 
   // check if email is required in settings and if user has an valid email
+  // (skipped for email-free accounts: LOCAL accounts whose identity column
+  // holds a bare username without an @ have no email to require)
   const settings = await getSettings();
+  const isEmailFreeAccount =
+    user.userType === UserType.LOCAL && !user.email.includes('@');
   if (
     settings.notifications.agents.email.options.userEmailRequired &&
+    !isEmailFreeAccount &&
     !validator.isEmail(user.email, { require_tld: false })
   ) {
     user.warnings.push('userEmailRequired');
@@ -964,7 +970,14 @@ authRoutes.post('/reset-password', async (req, res, next) => {
     .where('user.email = :email', { email: body.email.toLowerCase() })
     .getOne();
 
-  if (user) {
+  // Email-free accounts (LOCAL, identity holds a bare username) have no
+  // email address: a reset "link" cannot be sent, so there is nothing to
+  // do. Respond identically to the found / not-found cases (200, no
+  // enumeration). A no-@ email on a Plex/Jellyfin account is an upstream
+  // data quirk and keeps upstream behavior.
+  const isEmailFreeAccount =
+    user?.userType === UserType.LOCAL && !user.email.includes('@');
+  if (user && !isEmailFreeAccount) {
     await user.resetPassword();
     await userRepository.save(user);
     logger.info('Successfully sent password reset link', {
@@ -972,6 +985,14 @@ authRoutes.post('/reset-password', async (req, res, next) => {
       ip: req.ip,
       email: body.email,
     });
+  } else if (user) {
+    logger.warn(
+      'Password reset requested for email-free account; no email on file, ignoring',
+      {
+        label: 'API',
+        ip: req.ip,
+      }
+    );
   } else {
     logger.error('Something went wrong sending password reset link', {
       label: 'API',
@@ -1041,5 +1062,9 @@ authRoutes.post('/reset-password/:guid', async (req, res, next) => {
 
   return res.status(200).json({ status: 'ok' });
 });
+
+// Email-free local accounts (sami-flix fork): username-only
+// signup/sign-in, no email anywhere.
+registerEmailFreeRoutes(authRoutes);
 
 export default authRoutes;

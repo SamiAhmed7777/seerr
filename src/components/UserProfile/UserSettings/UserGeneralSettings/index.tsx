@@ -97,24 +97,31 @@ const UserGeneralSettings = () => {
   );
 
   const UserGeneralSettingsSchema = Yup.object().shape({
-    email:
-      // email is required for everybody except non-admin jellyfin users
-      user?.id === 1 ||
-      (user?.userType !== UserType.JELLYFIN && user?.userType !== UserType.EMBY)
-        ? Yup.string()
-            .test(
-              'email',
-              intl.formatMessage(messages.validationemailformat),
-              (value) =>
-                !value || validator.isEmail(value, { require_tld: false })
-            )
-            .required(intl.formatMessage(messages.validationemailrequired))
-        : Yup.string().test(
-            'email',
-            intl.formatMessage(messages.validationemailformat),
-            (value) =>
-              !value || validator.isEmail(value, { require_tld: false })
-          ),
+    email: (() => {
+      const emailTest = () =>
+        Yup.string().test(
+          'email',
+          intl.formatMessage(messages.validationemailformat),
+          (value) =>
+            !value || validator.isEmail(value, { require_tld: false })
+        );
+      // Email-free accounts (LOCAL, identity holds a bare username, no @)
+      // have no email: optional. Everyone else keeps upstream semantics:
+      // required for the owner and for non-Jellyfin/Emby users, optional
+      // for Jellyfin/Emby users.
+      const isEmailFreeAccount =
+        user?.userType === UserType.LOCAL && !user?.email?.includes('@');
+      if (isEmailFreeAccount) {
+        return emailTest();
+      }
+      return user?.id === 1 ||
+        (user?.userType !== UserType.JELLYFIN &&
+          user?.userType !== UserType.EMBY)
+        ? emailTest().required(
+            intl.formatMessage(messages.validationemailrequired)
+          )
+        : emailTest();
+    })(),
   });
 
   useEffect(() => {
@@ -305,33 +312,39 @@ const UserGeneralSettings = () => {
                     )}
                 </div>
               </div>
-              <div className="form-row">
-                <label htmlFor="email" className="text-label">
-                  {intl.formatMessage(messages.email)}
-                  {user?.warnings.find((w) => w === 'userEmailRequired') && (
-                    <span className="label-required">*</span>
-                  )}
-                </label>
-                <div className="form-input-area">
-                  <div className="form-input-field">
-                    <Field
-                      id="email"
-                      name="email"
-                      type="text"
-                      placeholder="example@domain.com"
-                      disabled={user?.plexUsername}
-                      className={
-                        user?.warnings.find((w) => w === 'userEmailRequired')
-                          ? 'border-2 border-red-400 focus:border-blue-600'
-                          : ''
-                      }
-                    />
+              {/* Email-free accounts (LOCAL, identity holds a bare
+                  username) have no email to show or edit: hide the field
+                  entirely instead of rendering an email surface. */}
+              {!(user?.userType === UserType.LOCAL &&
+                !user?.email?.includes('@')) && (
+                <div className="form-row">
+                  <label htmlFor="email" className="text-label">
+                    {intl.formatMessage(messages.email)}
+                    {user?.warnings.find((w) => w === 'userEmailRequired') && (
+                      <span className="label-required">*</span>
+                    )}
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <Field
+                        id="email"
+                        name="email"
+                        type="text"
+                        placeholder="example@domain.com"
+                        disabled={user?.plexUsername}
+                        className={
+                          user?.warnings.find((w) => w === 'userEmailRequired')
+                            ? 'border-2 border-red-400 focus:border-blue-600'
+                            : ''
+                        }
+                      />
+                    </div>
+                    {errors.email && touched.email && (
+                      <div className="error">{errors.email}</div>
+                    )}
                   </div>
-                  {errors.email && touched.email && (
-                    <div className="error">{errors.email}</div>
-                  )}
                 </div>
-              </div>
+              )}
               <div className="form-row">
                 <label htmlFor="locale" className="text-label">
                   {intl.formatMessage(messages.applanguage)}
