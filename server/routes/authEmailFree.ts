@@ -54,7 +54,8 @@ function expandIpv6(addr: string): string[] | null {
   return groups.map((g) => g.toLowerCase());
 }
 
-// Keyed on the raw socket address, deliberately NOT req.ip: forwarded
+// Keyed on the raw socket address, deliberately NOT the request-IP
+// property: forwarded
 // headers can never influence the bucket, regardless of the app's trust
 // proxy setting. IPv6 addresses are grouped to the /64 (express-rate-limit
 // validation ERR_ERL_KEY_GEN_IPV6 otherwise fails startup) so a /64 is
@@ -69,7 +70,7 @@ export const authRateLimiter = rateLimit({
     // Raw socket address only: forwarded headers can never influence the
     // bucket regardless of trust proxy. For a real TCP connection the
     // socket address is always defined; fall back to a static bucket
-    // otherwise (never req.ip - that would re-introduce header spoofing).
+    // otherwise (never the request-IP property - headers would win).
     const addr = req.socket.remoteAddress;
     // Group IPv6 to the /64 so a whole ISP/customer prefix is one bucket
     // (a non-proxied deployment already effectively has this property,
