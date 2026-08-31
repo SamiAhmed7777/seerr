@@ -66,12 +66,16 @@ export const authRateLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: 'Too many attempts. Try again later.' },
   keyGenerator: (req) => {
-    const addr = req.socket.remoteAddress ?? req.ip ?? 'unknown';
+    // Raw socket address only: forwarded headers can never influence the
+    // bucket regardless of trust proxy. For a real TCP connection the
+    // socket address is always defined; fall back to a static bucket
+    // otherwise (never req.ip - that would re-introduce header spoofing).
+    const addr = req.socket.remoteAddress;
     // Group IPv6 to the /64 so a whole ISP/customer prefix is one bucket
     // (a non-proxied deployment already effectively has this property,
     // and per-address keys with rotating low bits would defeat the limit).
     // IPv4 and IPv4-mapped/loopback addresses are used as-is.
-    if (addr.includes(':') && net.isIPv6(addr)) {
+    if (addr && addr.includes(':') && net.isIPv6(addr)) {
       const parts = expandIpv6(addr);
       if (parts) {
         parts[2] = '0';
@@ -84,7 +88,7 @@ export const authRateLimiter = rateLimit({
         return parts.join('-');
       }
     }
-    return addr;
+    return addr ?? 'unknown';
   },
   // The node:test suite exercises these endpoints heavily from one IP;
   // the test runner sets NODE_ENV=test.
