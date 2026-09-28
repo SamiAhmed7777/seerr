@@ -31,7 +31,7 @@ function assertTestDatabase(operation: string, allowOutsideTest = false): void {
  * Seeds test users into the database.
  * Assumes the database schema is already set up.
  */
-async function seedTestUsers(): Promise<void> {
+export async function seedTestUsers(): Promise<void> {
   const userRepository = getRepository(User);
 
   const admin = await userRepository.findOne({
